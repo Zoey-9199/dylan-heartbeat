@@ -233,12 +233,11 @@ function saveTimeline(messages) {
 // ========================
 function parseTimestampLabel(value) {
   const text = String(value || "");
-  const match = text.match(/（?\s*(\d{4})([-/])(\d{1,2})\2(\d{1,2})(?:[ T]?)(\d{1,2})[:：](\d{2})/);
+  const match = text.match(/（?\s*(\d{2,4})([-/])(\d{1,2})\2(\d{1,2})(?:[ T]?)(\d{1,2})[:：](\d{2})/);
   if (!match) return null;
-  const [, yyyy, , month, day, hour, minute] = match;
-  // 批注 2026-07-30：Kelivo 写进消息前缀的是用户配置时区的墙上时间；
-  // 公网/Railway 不能按服务器 UTC 解析，否则时间线和自动唤醒都会被推迟。
-  return zonedWallTimeToDate({ year: yyyy, month, day, hour, minute }, TIME_ZONE);
+  let [, year, , month, day, hour, minute] = match;
+  if (year.length === 2) year = "20" + year;
+  return zonedWallTimeToDate({ year, month, day, hour, minute }, TIME_ZONE);
 }
 
 function stripLeadingTimestamp(content) {
