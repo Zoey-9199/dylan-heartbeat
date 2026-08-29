@@ -334,10 +334,11 @@ function shouldWake(lastUserTime) {
 
 function parseTimelineTimestamp(value) {
   const text = String(value || "");
-  const match = text.match(/（?\s*(\d{4})([-/])(\d{1,2})\2(\d{1,2})(?:[ T]?)(\d{1,2})[:：](\d{2})/);
+  const match = text.match(/（?\s*(\d{2,4})([-/])(\d{1,2})\2(\d{1,2})(?:[ T]?)(\d{1,2})[:：](\d{2})/);
   if (!match) return null;
-  const [, yyyy, , month, day, hour, minute] = match;
-  return zonedWallTimeToDate({ year: yyyy, month, day, hour, minute }, TIME_ZONE);
+  let [, year, , month, day, hour, minute] = match;
+  if (year.length === 2) year = "20" + year;
+  return zonedWallTimeToDate({ year, month, day, hour, minute }, TIME_ZONE);
 }
 
 function getLastUserTime(messages) {
