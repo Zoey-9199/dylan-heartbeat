@@ -557,6 +557,17 @@ app.get("/v1/models", async (req, reply) => {
 app.post("/v1/chat/completions", async (req, reply) => {
   try {
     const body = req.body;
+    // 在解析 body 之后，转发给 Kimi 之前
+// 添加以下代码：
+    if (body.tools && body.tools.length > 0) {
+      try {
+        const toolsPath = path.join(DATA_DIR, 'tools.json');
+        fs.writeFileSync(toolsPath, JSON.stringify(body.tools, null, 2));
+        console.log(`已保存 ${body.tools.length} 个工具定义到 ${toolsPath}`);
+      } catch (e) {
+        console.error('保存工具定义失败:', e.message);
+      }
+    }
     // 批注 2026-07-15：公开部署时日志不能默认写入完整上下文；
     // 这里只保留请求摘要，避免 system prompt、记忆和聊天正文进入 pm2 日志。
     console.log(JSON.stringify({
