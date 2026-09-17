@@ -12,6 +12,101 @@ const {
   zonedWallTimeToDate
 } = require("./time_utils");
 
+// ========== AgentMail REST API 调用 ==========
+const AGENTMAIL_API_KEY = process.env.AGENTMAIL_API_KEY;
+const AGENTMAIL_BASE_URL = process.env.AGENTMAIL_BASE_URL || 'https://api.agentmail.to';
+const DEFAULT_INBOX_ID = process.env.AGENTMAIL_INBOX_ID;
+
+async function callAgentMailAPI(toolName, args) {
+  if (!AGENTMAIL_API_KEY) {
+    throw new Error('AGENTMAIL_API_KEY 未配置，无法执行邮件操作');
+  }
+  
+  const headers = {
+    'x-api-key': AGENTMAIL_API_KEY,
+    'Content-Type': 'application/json'
+  };
+  
+  let url, method = 'GET', body = null;
+  
+  switch (toolName) {
+    case 'send_message': {
+      const inboxId = args.inboxId || DEFAULT_INBOX_ID;
+      if (!inboxId) throw new Error('send_message 需要 inboxId');
+      url = `${AGENTMAIL_BASE_URL}/inboxes/${inboxId}/messages`;
+      method = 'POST';
+      body = JSON.stringify({
+        to: args.to,
+        subject: args.subject || '',
+        text: args.text || args.body || '',
+        html: args.html || undefined
+      });
+      break;
+    }
+    case 'reply_to_message': {
+      const messageId = args.messageId;
+      if (!messageId) throw new Error('reply_to_message 需要 messageId');
+      url = `${AGENTMAIL_BASE_URL}/messages/${messageId}/reply`;
+      method = 'POST';
+      body = JSON.stringify({
+        text: args.text || args.body || ''
+      });
+      break;
+    }
+    case 'list_threads': {
+      const inboxId = args.inboxId || DEFAULT_INBOX_ID;
+      if (!inboxId) throw new Error('list_threads 需要 inboxId');
+      url = `${AGENTMAIL_BASE_URL}/inboxes/${inboxId}/threads`;
+      break;
+    }
+    case 'get_thread': {
+      if (!args.threadId) throw new Error('get_thread 需要 threadId');
+      url = `${AGENTMAIL_BASE_URL}/threads/${args.threadId}`;
+      break;
+    }
+    case 'list_inboxes': {
+      url = `${AGENTMAIL_BASE_URL}/inboxes`;
+      break;
+    }
+    case 'get_inbox': {
+      if (!args.inboxId) throw new Error('get_inbox 需要 inboxId');
+      url = `${AGENTMAIL_BASE_URL}/inboxes/${args.inboxId}`;
+      break;
+    }
+    case 'list_messages': {
+      const inboxId = args.inboxId || DEFAULT_INBOX_ID;
+      if (!inboxId) throw new Error('list_messages 需要 inboxId');
+      url = `${AGENTMAIL_BASE_URL}/inboxes/${inboxId}/messages`;
+      break;
+    }
+    case 'get_message': {
+      if (!args.messageId) throw new Error('get_message 需要 messageId');
+      url = `${AGENTMAIL_BASE_URL}/messages/${args.messageId}`;
+      break;
+    }
+    case 'forward_message': {
+      if (!args.messageId) throw new Error('forward_message 需要 messageId');
+      url = `${AGENTMAIL_BASE_URL}/messages/${args.messageId}/forward`;
+      method = 'POST';
+      body = JSON.stringify({
+        to: args.to,
+        text: args.text || ''
+      });
+      break;
+    }
+    default:
+      throw new Error(`不支持的 AgentMail 工具: ${toolName}`);
+  }
+  
+  const res = await fetch(url, { method, headers, body });
+  const data = await res.json();
+  
+  if (!res.ok) {
+    throw new Error(`AgentMail API 错误 (${res.status}): ${JSON.stringify(data)}`);
+  }
+  
+  return data;
+}
 // 批注 2026-08-10：与 Gateway 共用同一 DATA_DIR；未配置时仍落回项目目录，保护旧 VPS/本机部署。
 const DATA_DIR = ensureDataDir();
 const TIMELINE_PATH = runtimeFile("enhanced_messages.json");
@@ -481,6 +576,30 @@ ${historyText}`
     return;
   }
 
+  // 加载已保存的工具定义
+  let tools = [];
+  try {
+    const toolsPath = path.join(DATA_DIR, 'tools.json');
+    if (fs.existsSync(toolsPath)) {
+      tools = JSON.parse(fs.readFileSync(toolsPath, 'utf8'));
+      console.log(`已加载 ${tools.length} 个工具定义`);
+    }
+  } catch (e) {
+    console.error('加载工具定义失败:', e.message);
+  }
+
+  // 构建请求体
+  const requestBody = {
+    model: process.env.MODEL_NAME,
+    messages: wakeMessages,
+    stream: false
+  };
+
+  if (tools.length > 0) {
+    requestBody.tools = tools;
+    requestBody.tool_choice = 'auto';
+  }
+
   const response = await fetch(process.env.TARGET_API_URL, {
     method: "POST",
     // 批注 2026-08-10：上游只建连不结束时，旧循环永远不会安排下一次检查；
@@ -490,11 +609,7 @@ ${historyText}`
       "Content-Type": "application/json",
       Authorization: `Bearer ${process.env.TARGET_API_KEY}`
     },
-     body: JSON.stringify({
-       model: process.env.MODEL_NAME,
-       messages: wakeMessages,
-       stream: false
-  })
+    body: JSON.stringify(requestBody)
   });
 
   const responseText = await response.text();
@@ -508,6 +623,75 @@ ${historyText}`
     throw new Error(`模型请求失败（HTTP ${response.status}）：${responseText.slice(0, 300)}`);
   }
 
+  // ========== 处理 tool_calls ==========
+  if (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.tool_calls) {
+    const toolCalls = data.choices[0].message.tool_calls;
+    console.log(`AI 请求调用 ${toolCalls.length} 个工具`);
+    
+    const toolResults = [];
+    
+    for (const toolCall of toolCalls) {
+      const toolName = toolCall.function.name;
+      let toolArgs = {};
+      try {
+        toolArgs = JSON.parse(toolCall.function.arguments || '{}');
+      } catch (e) {
+        console.error('解析工具参数失败:', e.message);
+      }
+      
+      console.log(`执行工具: ${toolName}`, toolArgs);
+      
+      try {
+        const result = await callAgentMailAPI(toolName, toolArgs);
+        console.log(`工具 ${toolName} 执行成功`);
+        toolResults.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(result)
+        });
+      } catch (err) {
+        console.error(`工具 ${toolName} 执行失败:`, err.message);
+        toolResults.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify({ error: err.message })
+        });
+      }
+    }
+    
+    // 把 tool_calls 和 tool_results 加入 wakeMessages，再发一次请求让 AI 生成最终回复
+    wakeMessages.push(data.choices[0].message);
+    for (const tr of toolResults) {
+      wakeMessages.push(tr);
+    }
+    
+    console.log('发送工具结果给 AI，生成最终回复...');
+    const finalRes = await fetch(process.env.TARGET_API_URL, {
+      method: "POST",
+      signal: AbortSignal.timeout(WAKE_UPSTREAM_TIMEOUT_MS),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.TARGET_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: process.env.MODEL_NAME,
+        messages: wakeMessages,
+        stream: false
+      })
+    });
+    
+    const finalText = await finalRes.text();
+    let finalData;
+    try {
+      finalData = parseChatCompletionResponse(finalText, finalRes.headers.get("content-type") || "");
+    } catch (error) {
+      throw new Error(`工具结果后模型响应无法解析（HTTP ${finalRes.status}）：${error.message || finalText.slice(0, 300)}`);
+    }
+    if (finalData.choices && finalData.choices[0]) {
+      data.choices[0] = finalData.choices[0];
+      console.log('AI 最终回复已生成');
+    }
+  }
   const rawAiText = normalizeContentToText(data.choices?.[0]?.message?.content).trim();
   console.log("\nWake Result Summary:\n");
   console.log(JSON.stringify({ choices: Array.isArray(data.choices) ? data.choices.length : 0, ai_text_chars: rawAiText.length }));
