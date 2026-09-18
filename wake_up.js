@@ -23,7 +23,7 @@ async function callAgentMailAPI(toolName, args) {
   }
   
   const headers = {
-    'x-api-key': AGENTMAIL_API_KEY,
+    'Authorization': `Bearer ${AGENTMAIL_API_KEY}`,
     'Content-Type': 'application/json'
   };
   
@@ -33,7 +33,7 @@ async function callAgentMailAPI(toolName, args) {
     case 'send_message': {
       const inboxId = args.inboxId || DEFAULT_INBOX_ID;
       if (!inboxId) throw new Error('send_message 需要 inboxId');
-      url = `${AGENTMAIL_BASE_URL}/inboxes/${inboxId}/messages`;
+      url = `${AGENTMAIL_BASE_URL}/v0/inboxes/${inboxId}/messages`;
       method = 'POST';
       body = JSON.stringify({
         to: args.to,
@@ -46,7 +46,7 @@ async function callAgentMailAPI(toolName, args) {
     case 'reply_to_message': {
       const messageId = args.messageId;
       if (!messageId) throw new Error('reply_to_message 需要 messageId');
-      url = `${AGENTMAIL_BASE_URL}/messages/${messageId}/reply`;
+      url = `${AGENTMAIL_BASE_URL}/v0/messages/${messageId}/reply`;
       method = 'POST';
       body = JSON.stringify({
         text: args.text || args.body || ''
@@ -56,37 +56,37 @@ async function callAgentMailAPI(toolName, args) {
     case 'list_threads': {
       const inboxId = args.inboxId || DEFAULT_INBOX_ID;
       if (!inboxId) throw new Error('list_threads 需要 inboxId');
-      url = `${AGENTMAIL_BASE_URL}/inboxes/${inboxId}/threads`;
+      url = `${AGENTMAIL_BASE_URL}/v0/inboxes/${inboxId}/threads`;
       break;
     }
     case 'get_thread': {
       if (!args.threadId) throw new Error('get_thread 需要 threadId');
-      url = `${AGENTMAIL_BASE_URL}/threads/${args.threadId}`;
+      url = `${AGENTMAIL_BASE_URL}/v0/threads/${args.threadId}`;
       break;
     }
     case 'list_inboxes': {
-      url = `${AGENTMAIL_BASE_URL}/inboxes`;
+      url = `${AGENTMAIL_BASE_URL}/v0/inboxes`;
       break;
     }
     case 'get_inbox': {
       if (!args.inboxId) throw new Error('get_inbox 需要 inboxId');
-      url = `${AGENTMAIL_BASE_URL}/inboxes/${args.inboxId}`;
+      url = `${AGENTMAIL_BASE_URL}/v0/inboxes/${args.inboxId}`;
       break;
     }
     case 'list_messages': {
       const inboxId = args.inboxId || DEFAULT_INBOX_ID;
       if (!inboxId) throw new Error('list_messages 需要 inboxId');
-      url = `${AGENTMAIL_BASE_URL}/inboxes/${inboxId}/messages`;
+      url = `${AGENTMAIL_BASE_URL}/v0/inboxes/${inboxId}/messages`;
       break;
     }
     case 'get_message': {
       if (!args.messageId) throw new Error('get_message 需要 messageId');
-      url = `${AGENTMAIL_BASE_URL}/messages/${args.messageId}`;
+      url = `${AGENTMAIL_BASE_URL}/v0/messages/${args.messageId}`;
       break;
     }
     case 'forward_message': {
       if (!args.messageId) throw new Error('forward_message 需要 messageId');
-      url = `${AGENTMAIL_BASE_URL}/messages/${args.messageId}/forward`;
+      url = `${AGENTMAIL_BASE_URL}/v0/messages/${args.messageId}/forward`;
       method = 'POST';
       body = JSON.stringify({
         to: args.to,
